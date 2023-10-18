@@ -16,6 +16,11 @@ import io.vertx.core.WorkerOptions;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+/**
+ * Options to use when deploying a virtual threads powered worker verticle.
+ *
+ * @author <a href="mailto:julien@julienviet.com">Julien Viet</a>
+ */
 public class VirtualThreadOptions implements WorkerOptions {
 
   @Override

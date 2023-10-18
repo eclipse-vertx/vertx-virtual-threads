@@ -10,14 +10,22 @@
  */
 package io.vertx.virtualthreads.await;
 
+import io.vertx.core.Context;
 import io.vertx.core.Future;
 import io.vertx.core.Handler;
 import io.vertx.core.Vertx;
 import io.vertx.core.impl.*;
+import io.vertx.core.impl.future.PromiseInternal;
 
 import java.util.concurrent.*;
 import java.util.concurrent.locks.Lock;
+import java.util.function.Supplier;
 
+/**
+ * Provide async/await programming model for Vert.x
+ *
+ * @author <a href="mailto:julien@julienviet.com">Julien Viet</a>
+ */
 public class Async {
 
   public static final ThreadFactory DEFAULT_THREAD_FACTORY = Thread.ofVirtual().name("vert.x-virtual-thread-", 0).factory();
@@ -41,24 +49,62 @@ public class Async {
   }
 
   /**
-   * Run a task on a virtual thread
+   * Run a task on a virtual thread, this must be called from an event-loop thread.
    */
   public void run(Handler<Void> task) {
-    ContextInternal context = create();
+    ContextInternal current = vertx.getOrCreateContext();
+    ContextInternal context = create(current);
     context.runOnContext(task);
   }
 
-  private ContextInternal create() {
-    VertxImpl _vertx = (VertxImpl) vertx;
+  /**
+   * Call a task on a virtual thread, this must be called from an event-loop thread.
+   */
+  public <T> Future<T> call(Callable<T> task) {
     ContextInternal current = vertx.getOrCreateContext();
+    PromiseInternal<T> promise = current.promise();
+    ContextInternal context = create(current);
+    context.runOnContext(v -> {
+      T res;
+      try {
+        res = task.call();
+      } catch (Exception e) {
+        promise.fail(e);
+        return;
+      }
+      promise.complete(res);
+    });
+    return promise.future();
+  }
+
+  /**
+   * @return a Vert.x context running tasks on a virtual thread
+   */
+  public Context context() {
+    return create(vertx.getOrCreateContext());
+  }
+
+  private ContextInternal create(ContextInternal current) {
     if (current.isEventLoopContext()) {
       WorkerPool workerPool = new WorkerPool(Executors.newThreadPerTaskExecutor(Async.DEFAULT_THREAD_FACTORY), null);
-      return _vertx.createWorkerContext(current.nettyEventLoop(), workerPool, current.classLoader());
+      return vertx.createWorkerContext(current.nettyEventLoop(), workerPool, current.classLoader());
     } else {
       throw new IllegalStateException("Must be called from an event-loop");
     }
   }
 
+  /**
+   * Park the current thread until the {@code future} is completed, when the future
+   * is completed the thread is un-parked and
+   *
+   * <ul>
+   *   <li>the result value is returned when the future was completed with a result</li>
+   *   <li>otherwise, the failure is thrown</li>
+   * </ul>
+   *
+   * @param future the future to await
+   * @return the result
+   */
   public static <T> T await(Future<T> future) {
     WorkerExecutor executor = unwrapWorkerExecutor();
     WorkerExecutor.TaskController cont = executor.current();
@@ -77,6 +123,9 @@ public class Async {
     }
   }
 
+  /**
+   * Acquire the {@code lock}.
+   */
   public static void lock(Lock lock) {
     lock(unwrapWorkerExecutor(), lock);
   }
@@ -101,6 +150,9 @@ public class Async {
     }
   }
 
+  /**
+   * Like {@link #await(Future)} but with a {@link CompletionStage}.
+   */
   public static <T> T await(CompletionStage<T> fut) {
     WorkerExecutor executor = unwrapWorkerExecutor();
     WorkerExecutor.TaskController cont = executor.current();
