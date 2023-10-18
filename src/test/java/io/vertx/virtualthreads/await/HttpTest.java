@@ -23,7 +23,6 @@ import io.vertx.core.http.HttpVersion;
 import io.vertx.core.impl.ContextInternal;
 import io.vertx.core.impl.future.PromiseInternal;
 import io.vertx.test.core.VertxTestBase;
-import io.vertx.virtualthreads.await.Async;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
@@ -113,22 +112,28 @@ public class HttpTest extends VertxTestBase {
       req.response().end("Hello World");
     });
     server.listen(8088, "localhost").toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+    HttpClient client = vertx.createHttpClient();
     async.run(v -> {
-      HttpClient client = vertx.createHttpClient();
       for (int i = 0; i < 100; ++i) {
-        HttpClientRequest req = Async.await(client.request(HttpMethod.GET, 8088, "localhost", "/"));
-        HttpClientResponse resp = Async.await(req.send());
-        StringBuffer body = new StringBuffer();
-        resp.handler(buff -> {
-          body.append(buff.toString());
-        });
-        resp.endHandler(v2 -> {
-          assertEquals("Hello World", body.toString());
-          complete();
+        client.request(HttpMethod.GET, 8088, "localhost", "/").onSuccess(req -> {
+          HttpClientResponse resp = Async.await(req.send());
+          StringBuffer body = new StringBuffer();
+          resp.handler(buff -> {
+            body.append(buff.toString());
+          });
+          resp.endHandler(v2 -> {
+            assertEquals("Hello World", body.toString());
+            complete();
+          });
         });
       }
     });
-    await();
+    try {
+      await();
+    } finally {
+      server.close().toCompletionStage().toCompletableFuture().get();
+      client.close().toCompletionStage().toCompletableFuture().get();
+    }
   }
 
   @Test

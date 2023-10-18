@@ -17,7 +17,6 @@ import io.vertx.core.impl.*;
 
 import java.util.concurrent.*;
 import java.util.concurrent.locks.Lock;
-import java.util.function.Consumer;
 
 public class Async {
 
@@ -61,7 +60,21 @@ public class Async {
   }
 
   public static <T> T await(Future<T> future) {
-    return await(future.toCompletionStage().toCompletableFuture());
+    WorkerExecutor executor = unwrapWorkerExecutor();
+    WorkerExecutor.TaskController cont = executor.current();
+    future.onComplete(ar -> cont.resume());
+    try {
+      cont.suspendAndAwaitResume();
+    } catch (InterruptedException e) {
+      throwAsUnchecked(e.getCause());
+      return null;
+    }
+    if (future.succeeded()) {
+      return future.result();
+    } else {
+      throwAsUnchecked(future.cause());
+      return null;
+    }
   }
 
   public static void lock(Lock lock) {
@@ -69,50 +82,40 @@ public class Async {
   }
 
   private static void lock(WorkerExecutor executor, Lock lock) {
-    Consumer<Runnable> cont = executor.unschedule();
-    CompletableFuture<Void> latch = new CompletableFuture<>();
+    WorkerExecutor.TaskController cont = executor.current();
+    CountDownLatch latch = cont.suspend();
+    Exception err = null;
     try {
       lock.lock();
-      cont.accept(() -> latch.complete(null));
     } catch(RuntimeException e) {
-      cont.accept(() -> latch.completeExceptionally(e));
+      err = e;
     }
+    cont.resume();
     try {
-      latch.get();
+      latch.await();
     } catch (InterruptedException e) {
-      throw new RuntimeException(e);
-    } catch (ExecutionException e) {
-      throwAsUnchecked(e.getCause());
+      throwAsUnchecked(err);
+    }
+    if (err != null) {
+      throwAsUnchecked(err);
     }
   }
 
-  public static <T> T await(CompletionStage<T> future) {
-    return await(unwrapWorkerExecutor(), future);
-  }
-
-  private static <T> T await(WorkerExecutor executor, CompletionStage<T> fut) {
-    Consumer<Runnable> cont = executor.unschedule();
-    CompletableFuture<T> latch = new CompletableFuture<>();
+  public static <T> T await(CompletionStage<T> fut) {
+    WorkerExecutor executor = unwrapWorkerExecutor();
+    WorkerExecutor.TaskController cont = executor.current();
     fut.whenComplete((v, err) -> {
-      cont.accept(() -> {
-        doComplete(v, err, latch);
-      });
+      cont.resume();
     });
     try {
-      return latch.get();
-    } catch (InterruptedException e) {
-      throw new RuntimeException(e);
+      cont.suspendAndAwaitResume();
+      return fut.toCompletableFuture().get();
     } catch (ExecutionException e) {
       throwAsUnchecked(e.getCause());
       return null;
-    }
-  }
-
-  private static <T> void doComplete(T val, Throwable err, CompletableFuture<T> fut) {
-    if (err == null) {
-      fut.complete(val);
-    } else {
-      fut.completeExceptionally(err);
+    } catch (InterruptedException e) {
+      throwAsUnchecked(e);
+      return null;
     }
   }
 
