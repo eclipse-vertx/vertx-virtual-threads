@@ -68,27 +68,30 @@ public class DeploymentTest extends VertxTestBase {
     AtomicInteger inflight = new AtomicInteger();
     AtomicBoolean processing = new AtomicBoolean();
     AtomicInteger max = new AtomicInteger();
-    awaitFuture(vertx.deployVerticle(new AbstractVerticle() {
-      HttpServer server;
-      @Override
-      public void start() {
-        server = vertx.createHttpServer().requestHandler(req -> {
-          assertFalse(processing.getAndSet(true));
-          int val = inflight.incrementAndGet();
-          max.set(Math.max(val, max.get()));
-          Future<Void> fut = Future.future(p -> vertx.setTimer(50, id -> p.complete()));
-          processing.set(false);
-          Async.await(fut);
-          assertFalse(processing.getAndSet(true));
-          req.response().end();
-          inflight.decrementAndGet();
-          processing.set(false);
-        });
-        Async.await(server.listen(8080, "localhost"));
-      }
-    }, new DeploymentOptions()
-      .setWorker(true)
-      .setWorkerOptions(new VirtualThreadOptions())));
+    vertx.deployVerticle(new AbstractVerticle() {
+        HttpServer server;
+        @Override
+        public void start() {
+          server = vertx.createHttpServer().requestHandler(req -> {
+            assertFalse(processing.getAndSet(true));
+            int val = inflight.incrementAndGet();
+            max.set(Math.max(val, max.get()));
+            Future<Void> fut = Future.future(p -> vertx.setTimer(50, id -> p.complete()));
+            processing.set(false);
+            Async.await(fut);
+            assertFalse(processing.getAndSet(true));
+            req.response().end();
+            inflight.decrementAndGet();
+            processing.set(false);
+          });
+          Async.await(server.listen(8080, "localhost"));
+        }
+      }, new DeploymentOptions()
+        .setWorker(true)
+        .setWorkerOptions(new VirtualThreadOptions()))
+      .toCompletionStage()
+      .toCompletableFuture()
+      .get();
     HttpClient client = vertx.createHttpClient();
     int numReq = 10;
     waitFor(numReq);
