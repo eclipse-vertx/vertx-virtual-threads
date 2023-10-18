@@ -2,6 +2,7 @@
 
 [![Build Status (5.x)](https://github.com/eclipse-vertx/vertx-virtual-threads/actions/workflows/ci-5.x.yml/badge.svg)](https://github.com/eclipse-vertx/vertx-virtual-threads/actions/workflows/ci-5.x.yml)
 
+[![Build Status (4.x)](https://github.com/eclipse-vertx/vertx-virtual-threads/actions/workflows/ci-4.x.yml/badge.svg)](https://github.com/eclipse-vertx/vertx-virtual-threads/actions/workflows/ci-4.x.yml)
 
 Use virtual threads to write Vert.x code that looks like it is synchronous.
 
