@@ -23,71 +23,47 @@ import java.util.concurrent.locks.Lock;
 public class VirtualThreadExamples {
 
   public void gettingStarted(Vertx vertx) {
-    Async async = new Async(vertx);
-    async.run(v -> {
-      // Run on a Vert.x a virtual thread
-      HttpClient client = vertx.createHttpClient();
-      HttpClientRequest req = Async.await(client.request(HttpMethod.GET, 8080, "localhost", "/"));
-      HttpClientResponse resp = Async.await(req.send());
-      int status = resp.statusCode();
-      Buffer body = Async.await(resp.body());
-    });
-  }
 
-  public void whatYouGet1(HttpClientRequest request) {
-    request
-      .send()
-      .onSuccess(response -> {
-      // Set the buffer for handlers
-      response.handler(buffers -> {
-
-      });
-    });
-  }
-
-  public void whatYouGet2(HttpClientRequest request)  {
-    Thread.startVirtualThread(() -> {
-      CompletableFuture<HttpClientResponse> fut = new CompletableFuture<>();
-      request.send().onComplete(ar -> {
-        if (ar.succeeded()) {
-          fut.complete(ar.result());
-        } else {
-          fut.completeExceptionally(ar.cause());
-        }
-      });;
-      try {
-        HttpClientResponse response = fut.get();
-        // As we get the response the virtual thread, there is a window of time where the event-loop thread has already sent buffers and we lost these events
-        response.handler(buffer -> {
-
-        });
-      } catch (Exception e) {
-        // Ooops
+    AbstractVerticle verticle = new AbstractVerticle() {
+      @Override
+      public void start() {
+        HttpClient client = vertx.createHttpClient();
+        HttpClientRequest req = Async.await(client.request(
+          HttpMethod.GET,
+          8080,
+          "localhost",
+          "/"));
+        HttpClientResponse resp = Async.await(req.send());
+        int status = resp.statusCode();
+        Buffer body = Async.await(resp.body());
       }
-    });
+    };
+
+    // Run the verticle a on virtual thread
+    vertx.deployVerticle(verticle, new DeploymentOptions()
+      .setWorker(true)
+      .setInstances(1)
+      .setWorkerOptions(new VirtualThreadOptions()));
   }
 
-  public void whatYouGet3(HttpClientRequest request) {
-    Future<HttpClientResponse> fut = request.send();
-    HttpClientResponse response = Async.await(fut);
-    // Buffer events might be in the queue and if they are, they will be dispatched next
-    response.handler(buffer -> {
+  private int counter;
 
-    });
+  public void fieldVisibility1() {
+    int value = counter;
+    value += Async.await(getRemoteValue());
+    // the counter value might have changed
+    counter = value;
   }
 
-  public void whatYouGet4(Vertx vertx, HttpClientRequest request) {
-    Promise<HttpClientResponse> promise = Promise.promise();
-    vertx.setTimer(100, id -> promise.tryFail("Too late"));
-    request.send().onComplete(promise);
-    try {
-      HttpClientResponse response = Async.await(promise.future());
-    } catch (Exception timeout) {
-      // Too late
-    }
+  public void fieldVisibility2() {
+    counter += Async.await(getRemoteValue());
   }
 
   private Future<Buffer> callRemoteService() {
+    return null;
+  }
+
+  private Future<Integer> getRemoteValue() {
     return null;
   }
 
@@ -115,7 +91,6 @@ public class VirtualThreadExamples {
       .setWorkerOptions(new VirtualThreadOptions()));
   }
 
-
   public void awaitingFutures1(HttpClientResponse response) {
     Buffer body = Async.await(response.body());
   }
@@ -133,7 +108,7 @@ public class VirtualThreadExamples {
     }
   }
 
-  public void threadLocalSupport1(Lock theLock, String userId, HttpClient client) {
+  public void threadLocalSupport1(String userId, HttpClient client) {
     ThreadLocal<String> local = new ThreadLocal();
     local.set(userId);
     HttpClientRequest req = Async.await(client.request(HttpMethod.GET, 8080, "localhost", "/"));
